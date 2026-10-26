@@ -51,21 +51,18 @@ if [[ -z "$DEFAULT_IP" ]]; then
 	exit 9
 fi
 
+OPENVPN_SSH=20
+WIREGUARD_SSH=21
+
 echo
 echo -e '\e[1;32mInstalling proxy for AntiZapret VPN server\e[0m'
 echo 'Proxied ports:'
-echo '    OpenVPN UDP:           80, 443, 504, 508, 50080, 50443'
-echo '    OpenVPN TCP:           80, 443, 504, 508, 50080, 50443'
+echo '    OpenVPN UDP/TCP:       80, 443, 504, 508, 50080, 50443'
 echo '    WireGuard/AmneziaWG:   540, 580, 51080, 51443, 52080, 52443'
+echo "    SSH OpenVPN:           $OPENVPN_SSH"
+echo "    SSH WireGuard:         $WIREGUARD_SSH"
 echo 'More details: https://github.com/GubernievS/AntiZapret-VPN'
 echo
-
-MTU=$(< /sys/class/net/$DEFAULT_INTERFACE/mtu)
-if (( MTU < 1500 )); then
-	echo "Warning! Low MTU on $DEFAULT_INTERFACE: $MTU"
-	echo "Change MTU in OpenVPN and WireGuard configs from 1420 to $((MTU-80)) on AntiZapret VPN server"
-	echo
-fi
 
 # Спрашиваем о настройках
 until [[ "$OPENVPN_UDP" =~ (y|n) ]]; do
@@ -80,6 +77,10 @@ until [[ "$WIREGUARD" =~ (y|n) ]]; do
 	read -rp 'Enable WireGuard/AmneziaWG proxying? [y/n]: ' -e -i y WIREGUARD
 done
 echo
+if [[ "$OPENVPN_UDP" == 'n' && "$OPENVPN_TCP" == 'n' && "$WIREGUARD" == 'n' ]]; then
+	echo 'Error: Nothing to proxy!'
+	exit 10
+fi
 if [[ "$OPENVPN_UDP" == 'y' || "$OPENVPN_TCP" == 'y' ]]; then
 	while read -rp 'Enter OpenVPN server IPv4 address: ' -e OPENVPN_IP
 	do
@@ -106,32 +107,77 @@ until [[ "$SCAN_PROTECTION" =~ (y|n) ]]; do
 	read -rp 'Enable network scan protection? [y/n]: ' -e -i y SCAN_PROTECTION
 done
 echo
+echo "Warning! SSH proxying ($OPENVPN_SSH/$WIREGUARD_SSH) works only after SSH login to this server!"
+until [[ "$SSH_PROXY" =~ (y|n) ]]; do
+	read -rp 'Enable SSH proxying? [y/n]: ' -e -i y SSH_PROXY
+done
+echo
 echo 'Installation, please wait...'
 
 # Удалим ненужные службы
-apt-get purge -y ufw
-apt-get purge -y firewalld
-apt-get purge -y apparmor
-apt-get purge -y apport
-apt-get purge -y modemmanager
-apt-get purge -y snapd
-apt-get purge -y upower
-apt-get purge -y multipath-tools
-apt-get purge -y rsyslog
-apt-get purge -y udisks2
-apt-get purge -y qemu-guest-agent
-apt-get purge -y tuned
-apt-get purge -y sysstat
-apt-get purge -y acpid
-apt-get purge -y fwupd
-apt-get purge -y watchdog
-apt-get purge -y pcscd
-apt-get purge -y packagekit
+dpkg -s ufw &>/dev/null && apt-get purge -y ufw
+dpkg -s firewalld &>/dev/null && apt-get purge -y firewalld
+dpkg -s apparmor &>/dev/null && apt-get purge -y apparmor
+dpkg -s apport &>/dev/null && apt-get purge -y apport
+dpkg -s modemmanager &>/dev/null && apt-get purge -y modemmanager
+dpkg -s snapd &>/dev/null && apt-get purge -y snapd
+dpkg -s upower &>/dev/null && apt-get purge -y upower
+dpkg -s multipath-tools &>/dev/null && apt-get purge -y multipath-tools
+dpkg -s rsyslog &>/dev/null && apt-get purge -y rsyslog
+dpkg -s udisks2 &>/dev/null && apt-get purge -y udisks2
+dpkg -s qemu-guest-agent &>/dev/null && apt-get purge -y qemu-guest-agent
+dpkg -s tuned &>/dev/null && apt-get purge -y tuned
+dpkg -s sysstat &>/dev/null && apt-get purge -y sysstat
+dpkg -s acpid &>/dev/null && apt-get purge -y acpid
+dpkg -s fwupd &>/dev/null && apt-get purge -y fwupd
+dpkg -s watchdog &>/dev/null && apt-get purge -y watchdog
+dpkg -s pcscd &>/dev/null && apt-get purge -y pcscd
+dpkg -s packagekit &>/dev/null && apt-get purge -y packagekit
+dpkg -s thermald &>/dev/null && apt-get purge -y thermald
+dpkg -s open-iscsi &>/dev/null && apt-get purge -y open-iscsi
+dpkg -s ubuntu-drivers-common &>/dev/null && apt-get purge -y ubuntu-drivers-common
+dpkg -s avahi-daemon &>/dev/null && apt-get purge -y avahi-daemon
+dpkg -s accountsservice &>/dev/null && apt-get purge -y accountsservice
+dpkg -s bolt &>/dev/null && apt-get purge -y bolt
+dpkg -s plymouth &>/dev/null && apt-get purge -y plymouth
+dpkg -s popularity-contest &>/dev/null && apt-get purge -y popularity-contest
+dpkg -s whoopsie &>/dev/null && apt-get purge -y whoopsie
+dpkg -s landscape-common &>/dev/null && apt-get purge -y landscape-common
+dpkg -s canonical-livepatch &>/dev/null && apt-get purge -y canonical-livepatch
+dpkg -s ppp &>/dev/null && apt-get purge -y ppp
+dpkg -s speech-dispatcher &>/dev/null && apt-get purge -y speech-dispatcher
+dpkg -s brltty &>/dev/null && apt-get purge -y brltty
+dpkg -s bluez &>/dev/null && apt-get purge -y bluez
+dpkg -s bluetooth &>/dev/null && apt-get purge -y bluetooth
+dpkg -s wpasupplicant &>/dev/null && apt-get purge -y wpasupplicant
+dpkg -s cups &>/dev/null && apt-get purge -y cups
+dpkg -s cups-browsed &>/dev/null && apt-get purge -y cups-browsed
+dpkg -s cups-client &>/dev/null && apt-get purge -y cups-client
+dpkg -s cups-daemon &>/dev/null && apt-get purge -y cups-daemon
+dpkg -s cups-common &>/dev/null && apt-get purge -y cups-common
+dpkg -s nfs-common &>/dev/null && apt-get purge -y nfs-common
+dpkg -s rpcbind &>/dev/null && apt-get purge -y rpcbind
+dpkg -s cifs-utils &>/dev/null && apt-get purge -y cifs-utils
+dpkg -s ntfs-3g &>/dev/null && apt-get purge -y ntfs-3g
+dpkg -s os-prober &>/dev/null && apt-get purge -y os-prober
+dpkg -s laptop-detect &>/dev/null && apt-get purge -y laptop-detect
+dpkg -s powermgmt-base &>/dev/null && apt-get purge -y powermgmt-base
+dpkg -s xdg-user-dirs &>/dev/null && apt-get purge -y xdg-user-dirs
+dpkg -s update-notifier-common &>/dev/null && apt-get purge -y update-notifier-common
+dpkg -s at &>/dev/null && apt-get purge -y at
+dpkg -s spice-vdagent &>/dev/null && apt-get purge -y spice-vdagent
+dpkg -s libnss-mdns &>/dev/null && apt-get purge -y libnss-mdns
+dpkg -s byobu &>/dev/null && apt-get purge -y byobu
+dpkg -s ubuntu-advantage-tools &>/dev/null && apt-get purge -y ubuntu-advantage-tools
+dpkg -s ubuntu-pro-client &>/dev/null && apt-get purge -y ubuntu-pro-client
+dpkg -s pollinate &>/dev/null && apt-get purge -y pollinate
+dpkg -s secureboot-db &>/dev/null && apt-get purge -y secureboot-db
+#dpkg -s pastebinit &>/dev/null && apt-get purge -y pastebinit
 
 # SSH protection включён
 if [[ "$SSH_PROTECTION" == 'y' ]]; then
-	apt-get purge -y fail2ban
-	apt-get purge -y sshguard
+	dpkg -s fail2ban &>/dev/null && apt-get purge -y fail2ban
+	dpkg -s sshguard &>/dev/null && apt-get purge -y sshguard
 fi
 
 # Отключим IPv6
@@ -166,7 +212,7 @@ apt-get clean
 apt-get update
 dpkg --configure -a
 apt-get install --fix-broken -y
-apt-get dist-upgrade -y
+apt-get dist-upgrade -y --fix-missing
 apt-get install -y iptables iptables-persistent irqbalance unattended-upgrades
 apt-get autoremove --purge -y
 apt-get clean
@@ -241,7 +287,8 @@ net.netfilter.nf_conntrack_tcp_timeout_fin_wait=120
 net.netfilter.nf_conntrack_tcp_timeout_time_wait=120
 net.netfilter.nf_conntrack_tcp_timeout_close_wait=60
 net.netfilter.nf_conntrack_icmp_timeout=30
-net.ipv4.ip_no_pmtu_disc=1
+net.ipv4.ip_no_pmtu_disc=0
+net.ipv4.ip_forward_use_pmtu=1
 " > /etc/sysctl.d/99-proxy.conf
 
 # Отключим IPv6
@@ -279,6 +326,24 @@ ip6tables -w -I OUTPUT 1 -m conntrack --ctstate INVALID -j DROP
 if [[ "$SSH_PROTECTION" == 'y' ]]; then
 	iptables -w -I INPUT 2 -p tcp --dport ssh -m conntrack --ctstate NEW -m hashlimit --hashlimit-above 5/hour --hashlimit-burst 5 --hashlimit-mode srcip --hashlimit-srcmask 24 --hashlimit-name proxy-ssh --hashlimit-htable-expire 60000 -j DROP
 	ip6tables -w -I INPUT 2 -p tcp --dport ssh -m conntrack --ctstate NEW -m hashlimit --hashlimit-above 5/hour --hashlimit-burst 5 --hashlimit-mode srcip --hashlimit-srcmask 64 --hashlimit-name proxy-ssh6 --hashlimit-htable-expire 60000 -j DROP
+	if [[ "$SSH_PROXY" == 'y' ]]; then
+		if [[ "$OPENVPN_UDP" == 'y' || "$OPENVPN_TCP" == 'y' ]]; then
+			iptables -w -t mangle -A PREROUTING -p tcp --dport $OPENVPN_SSH -m conntrack --ctstate NEW -m hashlimit --hashlimit-above 5/hour --hashlimit-burst 5 --hashlimit-mode srcip --hashlimit-srcmask 24 --hashlimit-name proxy-ssh-openvpn --hashlimit-htable-expire 60000 -j DROP
+		fi
+		if [[ "$WIREGUARD" == 'y' ]]; then
+			iptables -w -t mangle -A PREROUTING -p tcp --dport $WIREGUARD_SSH -m conntrack --ctstate NEW -m hashlimit --hashlimit-above 5/hour --hashlimit-burst 5 --hashlimit-mode srcip --hashlimit-srcmask 24 --hashlimit-name proxy-ssh-wireguard --hashlimit-htable-expire 60000 -j DROP
+		fi
+	fi
+fi
+# SSH proxy
+if [[ "$SSH_PROXY" == 'y' ]]; then
+	iptables -w -A INPUT -p tcp --dport ssh -m conntrack --ctstate ESTABLISHED -m recent --set --name proxy-ssh -j ACCEPT
+	if [[ "$OPENVPN_UDP" == 'y' || "$OPENVPN_TCP" == 'y' ]]; then
+		iptables -w -A INPUT -p tcp --dport $OPENVPN_SSH -m conntrack --ctstate NEW -m recent ! --rcheck --seconds 60 --name proxy-ssh -j DROP
+	fi
+	if [[ "$WIREGUARD" == 'y' ]]; then
+		iptables -w -A INPUT -p tcp --dport $WIREGUARD_SSH -m conntrack --ctstate NEW -m recent ! --rcheck --seconds 60 --name proxy-ssh -j DROP
+	fi
 fi
 # Scan protection
 if [[ "$SCAN_PROTECTION" == 'y' ]]; then
@@ -322,6 +387,15 @@ if [[ "$WIREGUARD" == 'y' ]]; then
 	iptables -w -t nat -A PREROUTING -p udp --dport 51443 -j DNAT --to-destination $WIREGUARD_IP:51443
 	iptables -w -t nat -A PREROUTING -p udp --dport 52080 -j DNAT --to-destination $WIREGUARD_IP:51080
 	iptables -w -t nat -A PREROUTING -p udp --dport 52443 -j DNAT --to-destination $WIREGUARD_IP:51443
+fi
+# SSH proxy
+if [[ "$SSH_PROXY" == 'y' ]]; then
+	if [[ "$OPENVPN_UDP" == 'y' || "$OPENVPN_TCP" == 'y' ]]; then
+		iptables -w -t nat -A PREROUTING -p tcp --dport $OPENVPN_SSH -m recent --rcheck --seconds 60 --name proxy-ssh -j DNAT --to-destination $OPENVPN_IP:22
+	fi
+	if [[ "$WIREGUARD" == 'y' ]]; then
+		iptables -w -t nat -A PREROUTING -p tcp --dport $WIREGUARD_SSH -m recent --rcheck --seconds 60 --name proxy-ssh -j DNAT --to-destination $WIREGUARD_IP:22
+	fi
 fi
 # SNAT
 if [[ -n "$OPENVPN_IP" ]]; then

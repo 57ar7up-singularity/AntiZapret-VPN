@@ -3,6 +3,10 @@ set -e
 export LC_ALL=C
 shopt -s nullglob
 
+###
+sed -i '/sndbuf\|rcvbuf/d' /etc/openvpn/server/*.conf
+###
+
 # Обработка ошибок
 handle_error() {
 	echo "$(lsb_release -ds) $(uname -r) $(date --iso-8601=seconds)"
@@ -22,73 +26,6 @@ cd /root/antizapret
 rm -rf temp result
 mkdir -p temp result
 source setup
-
-###
-mv -f config/rpz.txt config/deny.txt 2>/dev/null || true
-mv -f config/rpz2.txt config/deny2.txt 2>/dev/null || true
-mv -f config/deny.txt config/deny-rpz.txt 2>/dev/null || true
-mv -f config/deny2.txt config/deny2-rpz.txt 2>/dev/null || true
-mv -f config/warp.txt config/warp-rpz.txt 2>/dev/null || true
-mv -f config/proxy.txt config/proxy-rpz.txt 2>/dev/null || true
-
-if [[ -f "config/include-hosts.txt" ]] && ! grep -qF 'добавление всех доменов' config/include-hosts.txt; then
-	sed -i '/^#   xn--80aswg\.xn--p1ai/a\#   .                      - добавление всех доменов (исключения задаются в config/exclude-hosts.txt)' config/include-hosts.txt
-fi
-
-if [[ -f "config/include-warp-hosts.txt" ]] && ! grep -qF 'добавление всех доменов' config/include-warp-hosts.txt; then
-	sed -i '/^#   xn--80aswg\.xn--p1ai/a\#   .                      - добавление всех доменов (исключения задаются в config/exclude-warp-hosts.txt)' config/include-warp-hosts.txt
-fi
-
-if [[ ! -f "config/include-warp-hosts.txt" ]]; then
-	echo '# Добавление доменов для маршрутизации исходящего трафика через WARP
-#
-# Формат записи: example.com
-# Где:
-#   example.com - доменное имя в кодировке ASCII или Punycode
-#
-# Примеры записи:
-#   subdomain.example.com  - добавление домена третьего уровня subdomain.example.com и всех его поддоменов
-#   example.com            - добавление домена второго уровня example.com и всех его поддоменов
-#   com                    - добавление домена верхнего уровня com и всех его поддоменов
-#   xn--80aswg.xn--p1ai    - добавление домена второго уровня сайт.рф и всех его поддоменов (кодировка Punycode)
-#   .                      - добавление всех доменов (исключения задаются в config/exclude-warp-hosts.txt)
-#
-# Строки начинающиеся с # это комментарии и они не обрабатываются
-#' > config/include-warp-hosts.txt
-fi
-
-if [[ ! -f "config/exclude-warp-hosts.txt" ]]; then
-	echo '# Исключение доменов из маршрутизации исходящего трафика через WARP
-# Исключить можно любые домены, а не только добавленные в config/include-warp-hosts.txt
-#
-# Формат записи: example.com
-# Где:
-#   example.com - доменное имя в кодировке ASCII или Punycode
-#
-# Примеры записи:
-#   subdomain.example.com  - исключение домена третьего уровня subdomain.example.com и всех его поддоменов
-#   example.com            - исключение домена второго уровня example.com и всех его поддоменов
-#   com                    - исключение домена верхнего уровня com и всех его поддоменов
-#   xn--80aswg.xn--p1ai    - исключение домена второго уровня сайт.рф и всех его поддоменов (кодировка Punycode)
-#
-# Строки начинающиеся с # это комментарии и они не обрабатываются
-#' > config/exclude-warp-hosts.txt
-fi
-
-if [[ ! -f "config/warp-rpz.txt" ]]; then
-	echo '; Настройка RPZ для маршрутизации через WARP
-; https://www.knot-resolver.cz/documentation/latest5/modules-policy.html#response-policy-zones
-; CNAME . добавляет домен для маршрутизации через WARP
-;' > config/warp-rpz.txt
-fi
-
-if [[ ! -f "config/proxy-rpz.txt" ]]; then
-	echo '; Настройка RPZ для маршрутизации через AntiZapret VPN
-; https://www.knot-resolver.cz/documentation/latest5/modules-policy.html#response-policy-zones
-; CNAME . добавляет домен для маршрутизации через AntiZapret VPN
-;' > config/proxy-rpz.txt
-fi
-###
 
 for file in config/*.txt; do
 	sed -i -e '$a\' "$file"
@@ -236,23 +173,14 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 	echo "$(wc -l < result/include-adblock-hosts.txt) - include-adblock-hosts.txt"
 	echo "$(wc -l < result/exclude-adblock-hosts.txt) - exclude-adblock-hosts.txt"
 
-	# Создаем файлы deny.rpz и deny2.rpz для Knot Resolver
-	echo -e '$TTL 10800\n@ SOA . . (1 1 1 1 10800)' > temp/deny.rpz
-	echo -e '$TTL 10800\n@ SOA . . (1 1 1 1 10800)' > temp/deny2.rpz
-
+	# Создаем файл deny.rpz для Knot Resolver (AntiZapret VPN)
+	echo -e '$TTL 86400\n@ SOA . . (1 1 1 1 86400)' > temp/deny.rpz
 	if [[ "$ANTIZAPRET_ADBLOCK" == 'y' ]]; then
 		sed 's/$/ CNAME ./; p; s/^/*./' result/include-adblock-hosts.txt >> temp/deny.rpz
 		sed 's/$/ CNAME rpz-passthru./; p; s/^/*./' result/exclude-adblock-hosts.txt >> temp/deny.rpz
 	fi
 	sed 's/\r//g; /^;/d; /^$/d' download/*deny-rpz.txt config/*deny-rpz.txt >> temp/deny.rpz
 	cp temp/deny.rpz result/deny.rpz
-
-	if [[ "$VPN_ADBLOCK" == 'y' ]]; then
-		sed 's/$/ CNAME ./; p; s/^/*./' result/include-adblock-hosts.txt >> temp/deny2.rpz
-		sed 's/$/ CNAME rpz-passthru./; p; s/^/*./' result/exclude-adblock-hosts.txt >> temp/deny2.rpz
-	fi
-	sed 's/\r//g; /^;/d; /^$/d' download/*deny2-rpz.txt config/*deny2-rpz.txt >> temp/deny2.rpz
-	cp temp/deny2.rpz result/deny2.rpz
 
 	# Обновляем файл deny.rpz в Knot Resolver только если файл изменился
 	if [[ -f result/deny.rpz ]] && ! diff -q result/deny.rpz /etc/knot-resolver/deny.rpz; then
@@ -261,6 +189,15 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 		sleep 5
 	fi
 
+	# Создаем файл deny2.rpz для Knot Resolver (full VPN)
+	echo -e '$TTL 86400\n@ SOA . . (1 1 1 1 86400)' > temp/deny2.rpz
+	if [[ "$VPN_ADBLOCK" == 'y' ]]; then
+		sed 's/$/ CNAME ./; p; s/^/*./' result/include-adblock-hosts.txt >> temp/deny2.rpz
+		sed 's/$/ CNAME rpz-passthru./; p; s/^/*./' result/exclude-adblock-hosts.txt >> temp/deny2.rpz
+	fi
+	sed 's/\r//g; /^;/d; /^$/d' download/*deny2-rpz.txt config/*deny2-rpz.txt >> temp/deny2.rpz
+	cp temp/deny2.rpz result/deny2.rpz
+
 	# Обновляем файл deny2.rpz в Knot Resolver только если файл изменился
 	if [[ -f result/deny2.rpz ]] && ! diff -q result/deny2.rpz /etc/knot-resolver/deny2.rpz; then
 		cp -f result/deny2.rpz /etc/knot-resolver/deny2.rpz.tmp
@@ -268,11 +205,23 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 		sleep 5
 	fi
 
+	# Создаем файл deny3.rpz для Knot Resolver (Proxy DNS)
+	echo -e '$TTL 86400\n@ SOA . . (1 1 1 1 86400)' > temp/deny3.rpz
+	sed 's/\r//g; /^;/d; /^$/d' download/*deny3-rpz.txt config/*deny3-rpz.txt >> temp/deny3.rpz
+	cp temp/deny3.rpz result/deny3.rpz
+
+	# Обновляем файл deny3.rpz в Knot Resolver только если файл изменился
+	if [[ -f result/deny3.rpz ]] && ! diff -q result/deny3.rpz /etc/knot-resolver/deny3.rpz; then
+		cp -f result/deny3.rpz /etc/knot-resolver/deny3.rpz.tmp
+		mv -f /etc/knot-resolver/deny3.rpz.tmp /etc/knot-resolver/deny3.rpz
+		sleep 5
+	fi
+
 	# Обрабатываем конфигурационные файлы
 	sed -E 's/[\r[:space:]]+//g; /^\.$/!{/^[[:punct:]]/d;}; /^$/d; s/[]_~:/?#\[@!$&'\''()*+,;=].*//; s/.*/\L&/' download/*include-hosts.txt config/*include-hosts.txt > temp/include-hosts.txt
 	sed -E 's/[\r[:space:]]+//g; /^[[:punct:]]/d; /^$/d; s/[]_~:/?#\[@!$&'\''()*+,;=].*//; s/.*/\L&/' download/*exclude-hosts.txt config/*exclude-hosts.txt | sort -u > temp/exclude-hosts.txt
 	sed -E 's/[\r[:space:]]+//g; /^[[:punct:]]/d; /^$/d; s/[]_~:/?#\[@!$&'\''()*+,;=].*//; s/.*/\L&/' download/*remove-hosts.txt config/*remove-hosts.txt | sort -u > temp/remove-hosts.txt
-	sed -E 's/[\r[:space:]]+//g; /^\.$/!{/^[[:punct:]]/d;}; /^$/d; s/[]_~:/?#\[@!$&'\''()*+,;=].*//; s/.*/\L&/' config/*include-warp-hosts.txt | sort -u > result/include-warp-hosts.txt
+	sed -E 's/[\r[:space:]]+//g; /^\.$/!{/^[[:punct:]]/d;}; /^$/d; s/[]_~:/?#\[@!$&'\''()*+,;=].*//; s/.*/\L&/' download/*include-warp-hosts.txt config/*include-warp-hosts.txt | sort -u > result/include-warp-hosts.txt
 	sed -E 's/[\r[:space:]]+//g; /^[[:punct:]]/d; /^$/d; s/[]_~:/?#\[@!$&'\''()*+,;=].*//; s/.*/\L&/' config/*exclude-warp-hosts.txt | sort -u > result/exclude-warp-hosts.txt
 
 	# Обрабатываем список заблокированных ресурсов
@@ -283,7 +232,7 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 
 	# Удаляем домены казино и букмекеров
 	if [[ "$CLEAR_HOSTS" == 'y' ]]; then
-		grep -Evi '[ck]a+[szc3]+[iley1]+n+[0-9o]|[vw][uy]+[l1]+[kc]a+n|[vw]a+[vw]+a+d+a|x-*bet|most-*bet|leon-*bet|rio-*bet|mel-*bet|ramen-*bet|marathon-*bet|max-*bet|bet-*win|gg-*bet|spin-*bet|banzai-*bet|1iks-*bet|x-*slot|sloto-*zal|max-*slot|bk-*leon|gold-*fishka|play-*fortuna|dragon-*money|poker-*dom|1-*win|crypto-*bos|free-*spin|fair-*spin|no-*deposit|igrovye|avtomaty|bookmaker|zerkalo|slottica|sykaaa|admiral-*x|x-*admiral|pinup-*bet|pari-*match|betting|partypoker|jackpot|bonus|azino[0-9-]|888-*starz|zooma[0-9-]|zenit-*bet|eldorado|slots|vodka|newretro|platinum|igrat|flagman|arkada' temp/include-hosts.txt | sort -u > temp/include-hosts2.txt
+		grep -Evi '[ck]a+[szc3]+[iley1]+n+[0-9o]|[vw][uy]+[l1]+[kc]a+n|[vw]a+[vw]+a+d+a|x-*bet|most-*bet|leon-*bet|rio-*bet|mel-*bet|ramen-*bet|marathon-*bet|max-*bet|bet-*win|gg-*bet|spin-*bet|banzai-*bet|1iks-*bet|x-*slot|sloto-*zal|max-*slot|bk-*leon|gold-*fishka|play-*fortuna|dragon-*money|poker-*dom|1-*win|crypto-*bos|free-*spin|fair-*spin|no-*deposit|igrovye|avtomaty|bookmaker|zerkalo|slottica|sykaaa|admiral-*x|x-*admiral|pinup-*bet|pari-*match|betting|partypoker|jackpot|bonus|azino[0-9-]|888-*starz|zooma[0-9-]|zenit-*bet|eldorado|slots|vodka|newretro|platinum|igrat|flagman|arkada|vpn|proxy' temp/include-hosts.txt | sort -u > temp/include-hosts2.txt
 	else
 		sort -u temp/include-hosts.txt > temp/include-hosts2.txt
 	fi
@@ -326,8 +275,8 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 	echo "$(wc -l < result/include-warp-hosts.txt) - include-warp-hosts.txt"
 	echo "$(wc -l < result/exclude-warp-hosts.txt) - exclude-warp-hosts.txt"
 
-	# Создаем файл proxy.rpz для Knot Resolver
-	echo -e '$TTL 10800\n@ SOA . . (1 1 1 1 10800)' > temp/proxy.rpz
+	# Создаем файл proxy.rpz для Knot Resolver (AntiZapret VPN)
+	echo -e '$TTL 86400\n@ SOA . . (1 1 1 1 86400)' > temp/proxy.rpz
 	sed '/^\.$/ s/.*/*. CNAME ./; t; s/$/ CNAME ./; p; s/^/*./' result/include-hosts.txt >> temp/proxy.rpz
 	sed '/^\.$/ s/.*/*. CNAME rpz-passthru./; t; s/$/ CNAME rpz-passthru./; p; s/^/*./' result/exclude-hosts.txt >> temp/proxy.rpz
 	sed 's/\r//g; /^;/d; /^$/d' config/*proxy-rpz.txt >> temp/proxy.rpz
@@ -340,11 +289,11 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 		sleep 5
 	fi
 
-	# Создаем файл warp.rpz для Knot Resolver
+	# Создаем файл warp.rpz для Knot Resolver (AntiZapret VPN)
 	if [[ "$ANTIZAPRET_WARP" == '3' ]]; then
 		cp temp/proxy.rpz temp/warp.rpz
 	else
-		echo -e '$TTL 10800\n@ SOA . . (1 1 1 1 10800)' > temp/warp.rpz
+		echo -e '$TTL 86400\n@ SOA . . (1 1 1 1 86400)' > temp/warp.rpz
 	fi
 	sed '/^\.$/ s/.*/*. CNAME ./; t; s/$/ CNAME ./; p; s/^/*./' result/include-warp-hosts.txt >> temp/warp.rpz
 	sed '/^\.$/ s/.*/*. CNAME rpz-passthru./; t; s/$/ CNAME rpz-passthru./; p; s/^/*./' result/exclude-warp-hosts.txt >> temp/warp.rpz
@@ -358,15 +307,59 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 		sleep 5
 	fi
 
+	# Создаем файл warp2.rpz для Knot Resolver (full VPN)
+	if [[ "$VPN_WARP" == '3' ]]; then
+		echo -e '$TTL 86400\n@ SOA . . (1 1 1 1 86400)' > temp/warp2.rpz
+		sed '/^\.$/ s/.*/*. CNAME ./; t; s/$/ CNAME ./; p; s/^/*./' result/include-warp-hosts.txt >> temp/warp2.rpz
+		sed '/^\.$/ s/.*/*. CNAME rpz-passthru./; t; s/$/ CNAME rpz-passthru./; p; s/^/*./' result/exclude-warp-hosts.txt >> temp/warp2.rpz
+		sed 's/\r//g; /^;/d; /^$/d' config/*warp-rpz.txt >> temp/warp2.rpz
+	else
+		> temp/warp2.rpz
+	fi
+	cp temp/warp2.rpz result/warp2.rpz
+
+	# Обновляем файл warp2.rpz в Knot Resolver только если файл изменился
+	if [[ -f result/warp2.rpz ]] && ! diff -q result/warp2.rpz /etc/knot-resolver/warp2.rpz; then
+		cp -f result/warp2.rpz /etc/knot-resolver/warp2.rpz.tmp
+		mv -f /etc/knot-resolver/warp2.rpz.tmp /etc/knot-resolver/warp2.rpz
+		sleep 5
+	fi
+
 	# Очищаем кэш Knot Resolver
 	if [[ "$1" != 'noclear' && "$1" != 'noclean' ]]; then
 		count="$(echo 'cache.clear()' | socat - /run/knot-resolver/control/1 | grep -oE '[0-9]+' || echo 0)"
 		echo "AntiZapret DNS cache cleared: $count entries"
 		count="$(echo 'cache.clear()' | socat - /run/knot-resolver/control/2 | grep -oE '[0-9]+' || echo 0)"
 		echo "VPN DNS cache cleared: $count entries"
+		count="$(echo 'cache.clear()' | socat - /run/knot-resolver/control/3 | grep -oE '[0-9]+' || echo 0)"
+		echo "Proxy DNS cache cleared: $count entries"
 	fi
 fi
 
-./custom-parse.sh "$1" || true
+# WARP AntiZapret
+ANTIZAPRET_WARP_INTERFACE=warp-antizapret
+ANTIZAPRET_WARP_PATH="/etc/wireguard/$ANTIZAPRET_WARP_INTERFACE.conf"
+if [[ -f $ANTIZAPRET_WARP_PATH ]]; then
+	wg-quick down $ANTIZAPRET_WARP_INTERFACE 2>/dev/null && wg-quick up $ANTIZAPRET_WARP_INTERFACE 2>/dev/null
+	echo "Reconnect $ANTIZAPRET_WARP_INTERFACE"
+fi
+
+# WARP VPN
+VPN_WARP_INTERFACE=warp-vpn
+VPN_WARP_PATH="/etc/wireguard/$VPN_WARP_INTERFACE.conf"
+if [[ -f $VPN_WARP_PATH ]]; then
+	wg-quick down $VPN_WARP_INTERFACE 2>/dev/null && wg-quick up $VPN_WARP_INTERFACE 2>/dev/null
+	echo "Reconnect $VPN_WARP_INTERFACE"
+fi
+
+# WARP DNS
+DNS_WARP_INTERFACE=warp-dns
+DNS_WARP_PATH="/etc/wireguard/$DNS_WARP_INTERFACE.conf"
+if [[ -f $DNS_WARP_PATH ]]; then
+	wg-quick down $DNS_WARP_INTERFACE 2>/dev/null && wg-quick up $DNS_WARP_INTERFACE 2>/dev/null
+	echo "Reconnect $DNS_WARP_INTERFACE"
+fi
+
+./custom-parse.sh "$@" || true
 
 exit 0

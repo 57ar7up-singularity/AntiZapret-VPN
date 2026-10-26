@@ -8,6 +8,14 @@ cd /root/antizapret
 
 source setup
 
+# Out IP protection
+if [[ -n "$ANTIZAPRET_OUT_IP" ]]; then
+	iptables -w -I INPUT 1 -d $ANTIZAPRET_OUT_IP -m conntrack --ctstate NEW -j DROP
+fi
+if [[ -n "$VPN_OUT_IP" && "$VPN_OUT_IP" != "$ANTIZAPRET_OUT_IP" ]]; then
+	iptables -w -I INPUT 1 -d $VPN_OUT_IP -m conntrack --ctstate NEW -j DROP
+fi
+
 if [[ -z "$DEFAULT_INTERFACE" ]]; then
 	DEFAULT_INTERFACE="$(ip route get 1.2.3.4 2>/dev/null | grep -oP 'dev \K\S+')"
 	if [[ -z "$DEFAULT_INTERFACE" ]]; then
@@ -38,6 +46,8 @@ fi
 [[ "$ALTERNATIVE_CLIENT_IP" == 'y' ]] && IP="${CLIENT_IP:-172}" || IP=10
 [[ "$ALTERNATIVE_FAKE_IP" == 'y' ]] && FAKE_IP="${FAKE_IP:-198.18}" || FAKE_IP="$IP.30"
 
+WARP_MTU="${WARP_MTU:-1280}"
+
 # WARP AntiZapret
 ANTIZAPRET_WARP_INTERFACE=warp-antizapret
 ANTIZAPRET_WARP_PATH="/etc/wireguard/$ANTIZAPRET_WARP_INTERFACE.conf"
@@ -48,12 +58,12 @@ if [[ "$ANTIZAPRET_WARP" == '2' || "$ANTIZAPRET_WARP" == '3' || "$ANTIZAPRET_WAR
 	if [[ -z "$ANTIZAPRET_WARP_PRIVATE_KEY" || -z "$ANTIZAPRET_WARP_PUBLIC_KEY" || -z "$ANTIZAPRET_WARP_ENDPOINT" || -z "$ANTIZAPRET_WARP_ADDRESS" ]]; then
 		ANTIZAPRET_WARP_PRIVATE_KEY=$(wg genkey)
 		KEY=$(echo "$ANTIZAPRET_WARP_PRIVATE_KEY" | wg pubkey)
-		REG=$(curl -sSfL --connect-timeout 10 -X POST "https://api.cloudflareclient.com/v0a2158/reg" \
+		REG=$(curl -sSfL --connect-timeout 10 -X POST "https://api.cloudflareclient.com/v0a$RANDOM/reg" \
 			-H 'Content-Type: application/json' \
 			-d "{\"key\": \"$KEY\"}")
 
 		ANTIZAPRET_WARP_PUBLIC_KEY=$(echo "$REG" | jq -r '.config.peers[0].public_key')
-		ANTIZAPRET_WARP_ENDPOINT=$(echo "$REG" | jq -r '.config.peers[0].endpoint.host')
+		ANTIZAPRET_WARP_ENDPOINT=$(echo "$REG" | jq -r '(.config.peers[0].endpoint.v4 // .config.peers[0].endpoint.host // .config.peers[0].endpoint) | sub(":0$"; ":2408")')
 		ANTIZAPRET_WARP_ADDRESS="$(echo "$REG" | jq -r '.config.interface.addresses.v4')/32"
 	fi
 	ANTIZAPRET_WARP_IP="${ANTIZAPRET_WARP_ADDRESS%%/*}"
@@ -63,12 +73,12 @@ if [[ "$ANTIZAPRET_WARP" == '2' || "$ANTIZAPRET_WARP" == '3' || "$ANTIZAPRET_WAR
 	echo "[Interface]
 PrivateKey = $ANTIZAPRET_WARP_PRIVATE_KEY
 Address = $ANTIZAPRET_WARP_ADDRESS
-MTU = 1420
-Table = 13335
+MTU = $WARP_MTU
+Table = 1000
 PostUp = ip rule add from $IP.29.0.0/16 to $IP.29.0.0/16 lookup main priority 5000 || true
-PostUp = ip rule add from $IP.29.0.0/16 ${ANTIZAPRET_FWMARK}lookup 13335 priority 10000 || true
+PostUp = ip rule add from $IP.29.0.0/16 ${ANTIZAPRET_FWMARK}lookup 1000 priority 10000 || true
 PostDown = ip rule del from $IP.29.0.0/16 to $IP.29.0.0/16 priority 5000
-PostDown = ip rule del from $IP.29.0.0/16 ${ANTIZAPRET_FWMARK}lookup 13335 priority 10000
+PostDown = ip rule del from $IP.29.0.0/16 ${ANTIZAPRET_FWMARK}lookup 1000 priority 10000
 
 [Peer]
 PublicKey = $ANTIZAPRET_WARP_PUBLIC_KEY
@@ -76,7 +86,7 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 15
 Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 
-	wg-quick up $ANTIZAPRET_WARP_PATH 2>/dev/null
+	wg-quick up $ANTIZAPRET_WARP_INTERFACE 2>/dev/null
 
 	if [[ $? -eq 0 ]]; then
 		echo "Started $ANTIZAPRET_WARP_INTERFACE: $ANTIZAPRET_WARP_ENDPOINT connected"
@@ -85,7 +95,12 @@ Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 			ANTIZAPRET_OUT_IP=$ANTIZAPRET_WARP_IP
 		fi
 	else
-		echo "Starting $ANTIZAPRET_WARP_INTERFACE failed! Use $DEFAULT_INTERFACE"
+		if [[ "$WARP_PROTECTION" == 'y' ]]; then
+			echo "Starting $ANTIZAPRET_WARP_INTERFACE failed! Blocking traffic"
+			iptables -w -I FORWARD 2 -s $IP.29.0.0/16 -j DROP
+		else
+			echo "Starting $ANTIZAPRET_WARP_INTERFACE failed! Use $DEFAULT_INTERFACE"
+		fi
 	fi
 	set -e
 else
@@ -102,12 +117,12 @@ if [[ "$VPN_WARP" == '2' || "$VPN_WARP" == '3' ]]; then
 	if [[ -z "$VPN_WARP_PRIVATE_KEY" || -z "$VPN_WARP_PUBLIC_KEY" || -z "$VPN_WARP_ENDPOINT" || -z "$VPN_WARP_ADDRESS" ]]; then
 		VPN_WARP_PRIVATE_KEY=$(wg genkey)
 		KEY=$(echo "$VPN_WARP_PRIVATE_KEY" | wg pubkey)
-		REG=$(curl -sSfL --connect-timeout 10 -X POST "https://api.cloudflareclient.com/v0a2158/reg" \
+		REG=$(curl -sSfL --connect-timeout 10 -X POST "https://api.cloudflareclient.com/v0a$RANDOM/reg" \
 			-H 'Content-Type: application/json' \
 			-d "{\"key\": \"$KEY\"}")
 
 		VPN_WARP_PUBLIC_KEY=$(echo "$REG" | jq -r '.config.peers[0].public_key')
-		VPN_WARP_ENDPOINT=$(echo "$REG" | jq -r '.config.peers[0].endpoint.host')
+		VPN_WARP_ENDPOINT=$(echo "$REG" | jq -r '(.config.peers[0].endpoint.v4 // .config.peers[0].endpoint.host // .config.peers[0].endpoint) | sub(":0$"; ":2408")')
 		VPN_WARP_ADDRESS="$(echo "$REG" | jq -r '.config.interface.addresses.v4')/32"
 	fi
 	VPN_WARP_IP="${VPN_WARP_ADDRESS%%/*}"
@@ -117,12 +132,12 @@ if [[ "$VPN_WARP" == '2' || "$VPN_WARP" == '3' ]]; then
 	echo "[Interface]
 PrivateKey = $VPN_WARP_PRIVATE_KEY
 Address = $VPN_WARP_ADDRESS
-MTU = 1420
-Table = 13336
+MTU = $WARP_MTU
+Table = 2000
 PostUp = ip rule add from $IP.28.0.0/16 to $IP.28.0.0/16 lookup main priority 5000 || true
-PostUp = ip rule add from $IP.28.0.0/16 ${VPN_FWMARK}lookup 13336 priority 10000 || true
+PostUp = ip rule add from $IP.28.0.0/16 ${VPN_FWMARK}lookup 2000 priority 10000 || true
 PostDown = ip rule del from $IP.28.0.0/16 to $IP.28.0.0/16 priority 5000
-PostDown = ip rule del from $IP.28.0.0/16 ${VPN_FWMARK}lookup 13336 priority 10000
+PostDown = ip rule del from $IP.28.0.0/16 ${VPN_FWMARK}lookup 2000 priority 10000
 
 [Peer]
 PublicKey = $VPN_WARP_PUBLIC_KEY
@@ -130,7 +145,7 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 15
 Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 
-	wg-quick up $VPN_WARP_PATH 2>/dev/null
+	wg-quick up $VPN_WARP_INTERFACE 2>/dev/null
 
 	if [[ $? -eq 0 ]]; then
 		echo "Started $VPN_WARP_INTERFACE: $VPN_WARP_ENDPOINT connected"
@@ -139,11 +154,70 @@ Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 			VPN_OUT_IP=$VPN_WARP_IP
 		fi
 	else
-		echo "Starting $VPN_WARP_INTERFACE failed! Use $DEFAULT_INTERFACE"
+		if [[ "$WARP_PROTECTION" == 'y' ]]; then
+			echo "Starting $VPN_WARP_INTERFACE failed! Blocking traffic"
+			iptables -w -I FORWARD 2 -s $IP.28.0.0/16 -j DROP
+		else
+			echo "Starting $VPN_WARP_INTERFACE failed! Use $DEFAULT_INTERFACE"
+		fi
 	fi
 	set -e
 else
 	rm -f $VPN_WARP_PATH
+fi
+
+# WARP DNS
+DNS_WARP_INTERFACE=warp-dns
+DNS_WARP_PATH="/etc/wireguard/$DNS_WARP_INTERFACE.conf"
+
+if [[ "$DNS_WARP" == 'y' ]]; then
+	set +e
+	echo "Starting $DNS_WARP_INTERFACE..."
+	if [[ -z "$DNS_WARP_PRIVATE_KEY" || -z "$DNS_WARP_PUBLIC_KEY" || -z "$DNS_WARP_ENDPOINT" || -z "$DNS_WARP_ADDRESS" ]]; then
+		DNS_WARP_PRIVATE_KEY=$(wg genkey)
+		KEY=$(echo "$DNS_WARP_PRIVATE_KEY" | wg pubkey)
+		REG=$(curl -sSfL --connect-timeout 10 -X POST "https://api.cloudflareclient.com/v0a$RANDOM/reg" \
+			-H 'Content-Type: application/json' \
+			-d "{\"key\": \"$KEY\"}")
+
+		DNS_WARP_PUBLIC_KEY=$(echo "$REG" | jq -r '.config.peers[0].public_key')
+		DNS_WARP_ENDPOINT=$(echo "$REG" | jq -r '(.config.peers[0].endpoint.v4 // .config.peers[0].endpoint.host // .config.peers[0].endpoint) | sub(":0$"; ":2408")')
+		DNS_WARP_ADDRESS="$(echo "$REG" | jq -r '.config.interface.addresses.v4')/32"
+	fi
+	DNS_WARP_IP="${DNS_WARP_ADDRESS%%/*}"
+	DNS_WARP_UID="$(id -u knot-resolver)"
+
+	echo "[Interface]
+PrivateKey = $DNS_WARP_PRIVATE_KEY
+Address = $DNS_WARP_ADDRESS
+MTU = $WARP_MTU
+Table = 3000
+PostUp = ip rule add uidrange $DNS_WARP_UID-$DNS_WARP_UID to $IP.28.0.0/15 lookup main priority 5000 || true
+PostUp = ip rule add uidrange $DNS_WARP_UID-$DNS_WARP_UID lookup 3000 priority 10000 || true
+PostDown = ip rule del uidrange $DNS_WARP_UID-$DNS_WARP_UID to $IP.28.0.0/15 lookup main priority 5000
+PostDown = ip rule del uidrange $DNS_WARP_UID-$DNS_WARP_UID lookup 3000 priority 10000
+
+[Peer]
+PublicKey = $DNS_WARP_PUBLIC_KEY
+AllowedIPs = 0.0.0.0/0
+PersistentKeepalive = 15
+Endpoint = $DNS_WARP_ENDPOINT" > $DNS_WARP_PATH
+
+	wg-quick up $DNS_WARP_INTERFACE 2>/dev/null
+
+	if [[ $? -eq 0 ]]; then
+		echo "Started $DNS_WARP_INTERFACE: $DNS_WARP_ENDPOINT connected"
+		if [[ -z "$DNS_WARP_IP" ]]; then
+			iptables -w -t nat -A POSTROUTING -o $DNS_WARP_INTERFACE -j MASQUERADE
+		else
+			iptables -w -t nat -A POSTROUTING -o $DNS_WARP_INTERFACE -j SNAT --to-source $DNS_WARP_IP
+		fi
+	else
+		echo "Starting $DNS_WARP_INTERFACE failed! Use $DEFAULT_INTERFACE"
+	fi
+	set -e
+else
+	rm -f $DNS_WARP_PATH
 fi
 
 # filter
@@ -355,14 +429,11 @@ else
 fi
 
 # Network tuning
-SEGMENTATION_OFFLOAD="${SEGMENTATION_OFFLOAD:-off}"
 TXQUEUELEN="${TXQUEUELEN:-10000}"
 CPU_MASK=$(printf '%x' $(( (1 << $(nproc)) - 1 )))
 MTU="${MTU:-1420}"
 for dev in $(ls /sys/class/net); do
 	[[ "$dev" == "lo" || "$dev" == *docker* ]] && continue
-	# Packet segmentation offload
-	ethtool -K "$dev" tso "$SEGMENTATION_OFFLOAD" gso "$SEGMENTATION_OFFLOAD" gro "$SEGMENTATION_OFFLOAD"
 	if [[ -e "/sys/class/net/$dev/device" ]]; then
 		# Set TX queue length
 		ip link set "$dev" txqueuelen "$TXQUEUELEN"
@@ -382,5 +453,6 @@ echo "AntiZapret DNS cache cleared: $count entries"
 count="$(echo 'cache.clear()' | socat - /run/knot-resolver/control/2 | grep -oE '[0-9]+' || echo 0)"
 echo "VPN DNS cache cleared: $count entries"
 
-./custom-up.sh
+./custom-up.sh "$@" || true
+
 exit 0

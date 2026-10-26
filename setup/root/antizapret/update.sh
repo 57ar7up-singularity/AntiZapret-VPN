@@ -42,10 +42,17 @@ DENY_RPZ_PATH=download/deny-rpz.txt
 DENY2_RPZ_LINK=https://raw.githubusercontent.com/GubernievS/AntiZapret-VPN/main/setup/root/antizapret/download/deny2-rpz.txt
 DENY2_RPZ_PATH=download/deny2-rpz.txt
 
+DENY3_RPZ_LINK=https://raw.githubusercontent.com/GubernievS/AntiZapret-VPN/main/setup/root/antizapret/download/deny3-rpz.txt
+DENY3_RPZ_PATH=download/deny3-rpz.txt
+
 INCLUDE_HOSTS_LINK=https://raw.githubusercontent.com/GubernievS/AntiZapret-VPN/main/setup/root/antizapret/download/include-hosts.txt
 INCLUDE_HOSTS_PATH=download/include-hosts.txt
 
+INCLUDE_WARP_HOSTS_LINK=https://raw.githubusercontent.com/GubernievS/AntiZapret-VPN/main/setup/root/antizapret/download/include-warp-hosts.txt
+INCLUDE_WARP_HOSTS_PATH=download/include-warp-hosts.txt
+
 EXCLUDE_HOSTS_LINK=https://raw.githubusercontent.com/GubernievS/AntiZapret-VPN/main/setup/root/antizapret/download/exclude-hosts.txt
+EXCLUDE_RU_HOSTS_LINK=https://raw.githubusercontent.com/GubernievS/AntiZapret-VPN/main/setup/root/antizapret/download/exclude-ru-hosts.txt
 EXCLUDE_HOSTS_PATH=download/exclude-hosts.txt
 
 REMOVE_HOSTS_LINK=https://raw.githubusercontent.com/GubernievS/AntiZapret-VPN/main/setup/root/antizapret/download/remove-hosts.txt.gz
@@ -103,11 +110,8 @@ function download {
 	local tmp_path="${path}.tmp"
 	local link="$2"
 	echo "$path"
-	
-	if ! curl -fL --connect-timeout 30 --max-time 300 "$link" -o "$tmp_path"; then
-		echo 'Trying connect via proxy...'
-		curl -fL --connect-timeout 30 --max-time 300 "$PROXY$link" -o "$tmp_path" || exit 2
-	fi
+
+	curl -fL --connect-timeout 30 --max-time 300 "$link" -o "$tmp_path" || exit 2
 
 	mv -f "$tmp_path" "$path"
 	if [[ "$path" == *.sh ]]; then
@@ -128,13 +132,15 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 	( download $DOMAIN2_PATH $DOMAIN2_LINK ) || true
 	download $DENY_RPZ_PATH $DENY_RPZ_LINK
 	download $DENY2_RPZ_PATH $DENY2_RPZ_LINK
+	download $DENY3_RPZ_PATH $DENY3_RPZ_LINK
 	download $INCLUDE_HOSTS_PATH $INCLUDE_HOSTS_LINK
+	download $INCLUDE_WARP_HOSTS_PATH $INCLUDE_WARP_HOSTS_LINK
 	download $REMOVE_HOSTS_PATH $REMOVE_HOSTS_LINK
 
 	if [[ "$ROUTE_ALL" == 'y' ]]; then
-		download $EXCLUDE_HOSTS_PATH $EXCLUDE_HOSTS_LINK
+		download $EXCLUDE_HOSTS_PATH $EXCLUDE_RU_HOSTS_LINK
 	else
-		printf '# НЕ РЕДАКТИРУЙТЕ ЭТОТ ФАЙЛ!' > $EXCLUDE_HOSTS_PATH
+		download $EXCLUDE_HOSTS_PATH $EXCLUDE_HOSTS_LINK
 	fi
 
 	if [[ "$ANTIZAPRET_ADBLOCK" == 'y' || "$VPN_ADBLOCK" == 'y' ]]; then
@@ -196,6 +202,6 @@ if [[ -z "$1" || "$1" == 'ip' || "$1" == 'ips' || "$1" == 'noclear' || "$1" == '
 	fi
 fi
 
-./custom-update.sh "$1" || true
+./custom-update.sh "$@" || true
 
 exit 0

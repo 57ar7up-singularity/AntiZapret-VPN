@@ -91,14 +91,25 @@ echo 'OpenVPN + WireGuard + AmneziaWG'
 echo 'More details: https://github.com/GubernievS/AntiZapret-VPN'
 echo
 
-MTU=$(< /sys/class/net/$DEFAULT_INTERFACE/mtu)
-if (( MTU < 1500 )); then
-	echo "Warning! Low MTU on $DEFAULT_INTERFACE: $MTU"
-	echo "Change MTU in OpenVPN and WireGuard configs from 1420 to $((MTU-80)) on this server after installation"
-	echo
-fi
+DEFAULT_MTU=$(< /sys/class/net/$DEFAULT_INTERFACE/mtu)
+MTU=$((DEFAULT_MTU - 80))
+(( MTU > 1420 )) && MTU=1420
+(( MTU < 1280 )) && MTU=1280
 
 # Спрашиваем о настройках
+if (( DEFAULT_MTU < 1500 )); then
+	echo "Warning! MTU on $DEFAULT_INTERFACE is $DEFAULT_MTU"
+	echo "Recommended OpenVPN/WireGuard/WARP MTU is $MTU"
+fi
+read -rp 'OpenVPN/WireGuard MTU [1280-1420]: ' -e -i "$MTU" MTU
+until [[ "$MTU" =~ ^[0-9]+$ ]] && (( MTU >= 1280 && MTU <= 1420 )); do
+	read -rp 'OpenVPN/WireGuard MTU [1280-1420]: ' -e -i "$MTU" MTU
+done
+echo
+until [[ "$WARP_MTU" =~ ^[0-9]+$ ]] && (( WARP_MTU >= 1280 && WARP_MTU <= 1420 )); do
+	read -rp 'Cloudflare WARP MTU [1280-1420]: ' -e -i "$MTU" WARP_MTU
+done
+echo
 until [[ "$OPENVPN_UDP_ENABLE" =~ (y|n) ]]; do
 	read -rp 'Enable OpenVPN UDP? [y/n]: ' -e -i y OPENVPN_UDP_ENABLE
 done
@@ -127,7 +138,7 @@ done
 echo
 echo -e 'Choose Cloudflare WARP for \e[1;32mAntiZapret VPN\e[0m (antizapret-*) outbound traffic:'
 echo '    1) None    - Do not use'
-echo '    2) All     - Route all traffic (domains and IPs)'
+echo '    2) All     - Route all AntiZapret VPN traffic (domains and IPs)'
 echo '    3) Domain  - Route AntiZapret domains and config/include-warp-hosts.txt, excluding config/exclude-warp-hosts.txt'
 echo '    4) Custom  - Route domains only from config/include-warp-hosts.txt, excluding config/exclude-warp-hosts.txt'
 until [[ "$ANTIZAPRET_WARP" =~ ^[1-4]$ ]]; do
@@ -135,10 +146,16 @@ until [[ "$ANTIZAPRET_WARP" =~ ^[1-4]$ ]]; do
 done
 echo
 echo -e 'Choose Cloudflare WARP for \e[1;32mfull VPN\e[0m (vpn-*) outbound traffic:'
-echo '    1) None  - Do not use'
-echo '    2) All   - Route all traffic (domains and IPs)'
-until [[ "$VPN_WARP" =~ ^[1-2]$ ]]; do
-	read -rp 'WARP choice [1-2]: ' -e -i 2 VPN_WARP
+echo '    1) None    - Do not use'
+echo '    2) All     - Route all full VPN traffic (domains and IPs)'
+echo '    3) Custom  - Route domains only from config/include-warp-hosts.txt, excluding config/exclude-warp-hosts.txt'
+until [[ "$VPN_WARP" =~ ^[1-3]$ ]]; do
+	read -rp 'WARP choice [1-3]: ' -e -i 2 VPN_WARP
+done
+echo
+echo -e 'Warning! WARP protection blocks \e[1;32mAntiZapret VPN\e[0m and \e[1;32mfull VPN\e[0m traffic if WARP failed to connect!'
+until [[ "$WARP_PROTECTION" =~ (y|n) ]]; do
+	read -rp 'Enable WARP protection? [y/n]: ' -e -i y WARP_PROTECTION
 done
 echo
 echo -e 'Choose DNS resolvers for \e[1;32mAntiZapret VPN\e[0m (antizapret-*):'
@@ -151,33 +168,25 @@ echo '       +ControlD+UltraDNS'
 echo '    3) Yandex *         - Use if previous choice fails to resolve domains'
 echo '    4) Google *         - Use if previous choice fails to resolve domains'
 echo '    5) AdGuard *        - Use for blocking ads, trackers, malware and phishing websites'
-echo '    6) Comss **         - More details: https://comss.ru/disqus/page.php?id=7315'
-echo '    7) XBox **          - More details: https://xbox-dns.ru'
-echo '    8) GeoHide **       - More details: https://geohide.ru'
-echo
+echo '    6) Comss **         - More details: https://comss.ru/page.php?id=7315'
+echo '    7) GeoHide **       - More details: https://geohide.ru'
 echo '  * - DNS resolvers support EDNS Client Subnet'
 echo ' ** - Enable additional proxying and hide this server IP on some internet resources'
 echo '      Use only if this server is geolocated in Russia or problems accessing some internet resources'
-until [[ "$ANTIZAPRET_DNS" =~ ^[1-8]$ ]]; do
-	read -rp 'DNS choice [1-8]: ' -e -i 1 ANTIZAPRET_DNS
+until [[ "$ANTIZAPRET_DNS" =~ ^[1-7]$ ]]; do
+	read -rp 'DNS choice [1-7]: ' -e -i 1 ANTIZAPRET_DNS
 done
 echo
 echo -e 'Choose DNS resolvers for \e[1;32mfull VPN\e[0m (vpn-*):'
-echo '    1) Self-hosted  - Use previous choice for AntiZapret VPN, recommended by default'
-echo '    2) Cloudflare   - Use if default choice fails to resolve domains'
-echo '    3) Quad9        - Use if previous choice fails to resolve domains'
-echo '    4) Yandex *     - Use if previous choice fails to resolve domains'
-echo '    5) Google *     - Use if previous choice fails to resolve domains'
-echo '    6) AdGuard *    - Use for blocking ads, trackers, malware and phishing websites'
-echo '    7) Comss **     - More details: https://comss.ru/disqus/page.php?id=7315'
-echo '    8) XBox **      - More details: https://xbox-dns.ru'
-echo '    9) GeoHide **   - More details: https://geohide.ru'
+echo '    1) Self-hosted        - Use previous choice for AntiZapret VPN, recommended by default'
+echo '    2) Cloudflare/Custom  - Disables replacement answer from self‑hosted DNS, allows custom DNS'
+until [[ "$VPN_DNS" =~ ^[1-2]$ ]]; do
+	read -rp 'DNS choice [1-2]: ' -e -i 1 VPN_DNS
+done
 echo
-echo '  * - DNS resolvers support EDNS Client Subnet'
-echo ' ** - Enable additional proxying and hide this server IP on some internet resources'
-echo '      Use only if this server is geolocated in Russia or problems accessing some internet resources'
-until [[ "$VPN_DNS" =~ ^[1-9]$ ]]; do
-	read -rp 'DNS choice [1-9]: ' -e -i 1 VPN_DNS
+echo 'Answer "y" if selected DNS resolvers are blocked or unreachable'
+until [[ "$DNS_WARP" =~ (y|n) ]]; do
+	read -rp 'Route all DNS outbound queries via Cloudflare WARP? [y/n]: ' -e -i n DNS_WARP
 done
 echo
 until [[ "$ANTIZAPRET_ADBLOCK" =~ (y|n) ]]; do
@@ -314,6 +323,7 @@ echo 'Installation, please wait...'
 # Остановим и выключим обновляемые службы
 systemctl disable --now kresd@1
 systemctl disable --now kresd@2
+systemctl disable --now kresd@3
 systemctl disable --now antizapret
 systemctl disable --now antizapret-update.timer
 systemctl disable --now antizapret-update
@@ -325,34 +335,83 @@ systemctl disable --now wg-quick@antizapret
 systemctl disable --now wg-quick@vpn
 
 # Удалим ненужные службы
-apt-get purge -y ufw
-apt-get purge -y firewalld
-apt-get purge -y apparmor
-apt-get purge -y apport
-apt-get purge -y modemmanager
-apt-get purge -y snapd
-apt-get purge -y upower
-apt-get purge -y multipath-tools
-apt-get purge -y rsyslog
-apt-get purge -y udisks2
-apt-get purge -y qemu-guest-agent
-apt-get purge -y tuned
-apt-get purge -y sysstat
-apt-get purge -y acpid
-apt-get purge -y fwupd
-apt-get purge -y watchdog
-apt-get purge -y pcscd
-apt-get purge -y packagekit
+dpkg -s ufw &>/dev/null && apt-get purge -y ufw
+dpkg -s firewalld &>/dev/null && apt-get purge -y firewalld
+dpkg -s apparmor &>/dev/null && apt-get purge -y apparmor
+dpkg -s apport &>/dev/null && apt-get purge -y apport
+dpkg -s modemmanager &>/dev/null && apt-get purge -y modemmanager
+dpkg -s snapd &>/dev/null && apt-get purge -y snapd
+dpkg -s upower &>/dev/null && apt-get purge -y upower
+dpkg -s multipath-tools &>/dev/null && apt-get purge -y multipath-tools
+dpkg -s rsyslog &>/dev/null && apt-get purge -y rsyslog
+dpkg -s udisks2 &>/dev/null && apt-get purge -y udisks2
+dpkg -s qemu-guest-agent &>/dev/null && apt-get purge -y qemu-guest-agent
+dpkg -s tuned &>/dev/null && apt-get purge -y tuned
+dpkg -s sysstat &>/dev/null && apt-get purge -y sysstat
+dpkg -s acpid &>/dev/null && apt-get purge -y acpid
+dpkg -s fwupd &>/dev/null && apt-get purge -y fwupd
+dpkg -s watchdog &>/dev/null && apt-get purge -y watchdog
+dpkg -s pcscd &>/dev/null && apt-get purge -y pcscd
+dpkg -s packagekit &>/dev/null && apt-get purge -y packagekit
+dpkg -s thermald &>/dev/null && apt-get purge -y thermald
+dpkg -s open-iscsi &>/dev/null && apt-get purge -y open-iscsi
+dpkg -s ubuntu-drivers-common &>/dev/null && apt-get purge -y ubuntu-drivers-common
+dpkg -s avahi-daemon &>/dev/null && apt-get purge -y avahi-daemon
+dpkg -s accountsservice &>/dev/null && apt-get purge -y accountsservice
+dpkg -s bolt &>/dev/null && apt-get purge -y bolt
+dpkg -s plymouth &>/dev/null && apt-get purge -y plymouth
+dpkg -s popularity-contest &>/dev/null && apt-get purge -y popularity-contest
+dpkg -s whoopsie &>/dev/null && apt-get purge -y whoopsie
+dpkg -s landscape-common &>/dev/null && apt-get purge -y landscape-common
+dpkg -s canonical-livepatch &>/dev/null && apt-get purge -y canonical-livepatch
+dpkg -s ppp &>/dev/null && apt-get purge -y ppp
+dpkg -s speech-dispatcher &>/dev/null && apt-get purge -y speech-dispatcher
+dpkg -s brltty &>/dev/null && apt-get purge -y brltty
+dpkg -s bluez &>/dev/null && apt-get purge -y bluez
+dpkg -s bluetooth &>/dev/null && apt-get purge -y bluetooth
+dpkg -s wpasupplicant &>/dev/null && apt-get purge -y wpasupplicant
+dpkg -s cups &>/dev/null && apt-get purge -y cups
+dpkg -s cups-browsed &>/dev/null && apt-get purge -y cups-browsed
+dpkg -s cups-client &>/dev/null && apt-get purge -y cups-client
+dpkg -s cups-daemon &>/dev/null && apt-get purge -y cups-daemon
+dpkg -s cups-common &>/dev/null && apt-get purge -y cups-common
+dpkg -s nfs-common &>/dev/null && apt-get purge -y nfs-common
+dpkg -s rpcbind &>/dev/null && apt-get purge -y rpcbind
+dpkg -s cifs-utils &>/dev/null && apt-get purge -y cifs-utils
+dpkg -s ntfs-3g &>/dev/null && apt-get purge -y ntfs-3g
+dpkg -s os-prober &>/dev/null && apt-get purge -y os-prober
+dpkg -s laptop-detect &>/dev/null && apt-get purge -y laptop-detect
+dpkg -s powermgmt-base &>/dev/null && apt-get purge -y powermgmt-base
+dpkg -s xdg-user-dirs &>/dev/null && apt-get purge -y xdg-user-dirs
+dpkg -s update-notifier-common &>/dev/null && apt-get purge -y update-notifier-common
+dpkg -s at &>/dev/null && apt-get purge -y at
+dpkg -s spice-vdagent &>/dev/null && apt-get purge -y spice-vdagent
+dpkg -s libnss-mdns &>/dev/null && apt-get purge -y libnss-mdns
+dpkg -s byobu &>/dev/null && apt-get purge -y byobu
+dpkg -s ubuntu-advantage-tools &>/dev/null && apt-get purge -y ubuntu-advantage-tools
+dpkg -s ubuntu-pro-client &>/dev/null && apt-get purge -y ubuntu-pro-client
+dpkg -s pollinate &>/dev/null && apt-get purge -y pollinate
+dpkg -s secureboot-db &>/dev/null && apt-get purge -y secureboot-db
+#dpkg -s pastebinit &>/dev/null && apt-get purge -y pastebinit
+
+# Отключим ненужные службы
+systemctl disable --now ifupdown-wait-online
+systemctl disable --now setvtrgb
+systemctl disable --now e2scrub_reap
+systemctl disable --now systemd-pstore
+#systemctl disable --now networkd-dispatcher
+#systemctl disable --now secureboot-db
 
 # SSH protection включён
 if [[ "$SSH_PROTECTION" == 'y' ]]; then
-	apt-get purge -y fail2ban || true
-	apt-get purge -y sshguard || true
+	dpkg -s fail2ban &>/dev/null && apt-get purge -y fail2ban
+	dpkg -s sshguard &>/dev/null && apt-get purge -y sshguard
 fi
 
 # Удаляем кэш Knot Resolver
 rm -rf /var/cache/knot-resolver/*
 rm -rf /var/cache/knot-resolver2/*
+rm -rf /var/cache/knot-resolver3/*
 
 # Удаляем старые файлы OpenVPN и WireGuard
 rm -rf /etc/openvpn/server/*
@@ -391,7 +450,7 @@ rm -rf /etc/apt/sources.list.d/openvpn-aptrepo.list
 rm -rf /etc/apt/sources.list.d/backports.list
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get dist-upgrade -y
+apt-get dist-upgrade -y --fix-missing
 apt-get install -y curl gpg
 
 # Папка для ключей
@@ -419,27 +478,28 @@ if [[ "$OS" == 'ubuntu' ]] && (( VERSION < 26 )); then
 elif [[ "$OS" == 'debian' ]] && (( VERSION < 14 )); then
 	INSTALL="-t $CODENAME-backports linux-image-$ARCH linux-headers-$ARCH"
 fi
-apt-get install -y $INSTALL git openvpn iptables easy-rsa gawk knot-resolver idn sipcalc python3-pip wireguard diffutils socat lua-cqueues ipset irqbalance unattended-upgrades jq ethtool iproute2
+apt-get install -y $INSTALL git openvpn iptables easy-rsa gawk knot-resolver idn sipcalc python3-pip wireguard diffutils socat lua-cqueues ipset irqbalance unattended-upgrades jq iproute2
+systemctl disable --now openvpn
 apt-get autoremove --purge -y
 apt-get clean
 
 # Конфигурируем пакеты
 dpkg-reconfigure -f noninteractive unattended-upgrades
-git config --global http.version HTTP/1.1
+#git config --global http.version HTTP/1.1
 
 # Клонируем репозиторий и устанавливаем dnslib
 rm -rf /tmp/dnslib
-git clone https://github.com/paulc/dnslib.git /tmp/dnslib
+git clone --depth 1 https://github.com/paulc/dnslib.git /tmp/dnslib
 PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --force-reinstall --user /tmp/dnslib
 
 # Клонируем репозиторий antizapret
 rm -rf /tmp/antizapret
-git clone https://github.com/GubernievS/AntiZapret-VPN.git /tmp/antizapret
+git clone --depth 1 https://github.com/GubernievS/AntiZapret-VPN.git /tmp/antizapret
 
 # Сохраняем пользовательские настройки и обработчики custom*.sh
 cp /root/antizapret/config/*.txt /tmp/antizapret/setup/root/antizapret/config/ || true
 cp /root/antizapret/custom*.sh /tmp/antizapret/setup/root/antizapret/ || true
-cp /etc/knot-resolver/*.lua /tmp/antizapret/setup/etc/knot-resolver/ || true
+cp /etc/knot-resolver/custom*.lua /etc/knot-resolver/renumber*.lua /tmp/antizapret/setup/etc/knot-resolver/ || true
 
 # Восстанавливаем из бэкапа пользовательские настройки и обработчики custom*.sh, пользователей OpenVPN и WireGuard
 if [[ -e /root/backup*.tar.gz ]]; then
@@ -483,6 +543,12 @@ VPN_WARP_PRIVATE_KEY=
 VPN_WARP_PUBLIC_KEY=
 VPN_WARP_ENDPOINT=
 VPN_WARP_ADDRESS=
+DNS_WARP=$DNS_WARP
+DNS_WARP_PRIVATE_KEY=
+DNS_WARP_PUBLIC_KEY=
+DNS_WARP_ENDPOINT=
+DNS_WARP_ADDRESS=
+WARP_PROTECTION=$WARP_PROTECTION
 ANTIZAPRET_DNS=$ANTIZAPRET_DNS
 VPN_DNS=$VPN_DNS
 ANTIZAPRET_ADBLOCK=$ANTIZAPRET_ADBLOCK
@@ -516,8 +582,8 @@ GOOGLE_INCLUDE=$GOOGLE_INCLUDE
 AKAMAI_INCLUDE=$AKAMAI_INCLUDE
 CLEAR_HOSTS=y
 TXQUEUELEN=10000
-MTU=1420
-SEGMENTATION_OFFLOAD=off
+MTU=$MTU
+WARP_MTU=$WARP_MTU
 DEFAULT_INTERFACE=
 DEFAULT_IP=
 ANTIZAPRET_OUT_INTERFACE=
@@ -530,6 +596,7 @@ FAKE_IP=" > /tmp/antizapret/setup/root/antizapret/setup
 # Создаем папки для кэша Knot Resolver
 mkdir -p /var/cache/knot-resolver
 mkdir -p /var/cache/knot-resolver2
+mkdir -p /var/cache/knot-resolver3
 
 # Выставляем разрешения
 find /tmp/antizapret -type f -exec chmod 644 {} +
@@ -538,6 +605,7 @@ find /tmp/antizapret/setup/root/antizapret -type f -exec chmod +x {} +
 find /tmp/antizapret/setup/etc/openvpn/server/scripts -type f -exec chmod +x {} +
 chown -R knot-resolver:knot-resolver /var/cache/knot-resolver
 chown -R knot-resolver:knot-resolver /var/cache/knot-resolver2
+chown -R knot-resolver:knot-resolver /var/cache/knot-resolver3
 
 # Копируем нужное, удаляем не нужное
 rm -rf /root/antizapret
@@ -547,38 +615,12 @@ rm -rf /tmp/antizapret
 
 # Настраиваем DNS в AntiZapret VPN
 if [[ "$ANTIZAPRET_DNS" != '1' ]]; then
-	sed -i "s/local dns1 = 1/local dns1 = $ANTIZAPRET_DNS/" /etc/knot-resolver/kresd.conf
+	sed -i "s/local antizapret_dns = 1/local antizapret_dns = $ANTIZAPRET_DNS/" /etc/knot-resolver/kresd.conf
 fi
 
 # Настраиваем DNS в full VPN
-if [[ "$VPN_DNS" == '3' ]]; then
-	# Quad9
-	sed -i '/push "dhcp-option DNS 1\.1\.1\.1"/,+1c push "dhcp-option DNS 9.9.9.10"\npush "dhcp-option DNS 149.112.112.10"' /etc/openvpn/server/vpn*.conf
-	sed -i 's/1\.1\.1\.1, 1\.0\.0\.1/9.9.9.10, 149.112.112.10/' /etc/wireguard/templates/vpn-client*.conf
-elif [[ "$VPN_DNS" == '4' ]]; then
-	# Yandex
-	sed -i '/push "dhcp-option DNS 1\.1\.1\.1"/,+1c push "dhcp-option DNS 77.88.8.8"\npush "dhcp-option DNS 77.88.8.1"' /etc/openvpn/server/vpn*.conf
-	sed -i 's/1\.1\.1\.1, 1\.0\.0\.1/77.88.8.8, 77.88.8.1/' /etc/wireguard/templates/vpn-client*.conf
-elif [[ "$VPN_DNS" == '5' ]]; then
-	# Google
-	sed -i '/push "dhcp-option DNS 1\.1\.1\.1"/,+1c push "dhcp-option DNS 8.8.8.8"\npush "dhcp-option DNS 8.8.4.4"' /etc/openvpn/server/vpn*.conf
-	sed -i 's/1\.1\.1\.1, 1\.0\.0\.1/8.8.8.8, 8.8.4.4/' /etc/wireguard/templates/vpn-client*.conf
-elif [[ "$VPN_DNS" == '6' ]]; then
-	# AdGuard
-	sed -i '/push "dhcp-option DNS 1\.1\.1\.1"/,+1c push "dhcp-option DNS 94.140.14.14"\npush "dhcp-option DNS 94.140.15.15"' /etc/openvpn/server/vpn*.conf
-	sed -i 's/1\.1\.1\.1, 1\.0\.0\.1/94.140.14.14, 94.140.15.15/' /etc/wireguard/templates/vpn-client*.conf
-elif [[ "$VPN_DNS" == '7' ]]; then
-	# Comss
-	sed -i '/push "dhcp-option DNS 1\.1\.1\.1"/,+1c push "dhcp-option DNS 83.220.169.155"\npush "dhcp-option DNS 212.109.195.93"\npush "dhcp-option DNS 195.133.25.16"' /etc/openvpn/server/vpn*.conf
-	sed -i 's/1\.1\.1\.1, 1\.0\.0\.1/83.220.169.155, 212.109.195.93, 195.133.25.16/' /etc/wireguard/templates/vpn-client*.conf
-elif [[ "$VPN_DNS" == '8' ]]; then
-	# XBox
-	sed -i '/push "dhcp-option DNS 1\.1\.1\.1"/,+1c push "dhcp-option DNS 111.88.96.50"\npush "dhcp-option DNS 111.88.96.51"' /etc/openvpn/server/vpn*.conf
-	sed -i 's/1\.1\.1\.1, 1\.0\.0\.1/111.88.96.50, 111.88.96.51/' /etc/wireguard/templates/vpn-client*.conf
-elif [[ "$VPN_DNS" == '9' ]]; then
-	# GeoHide
-	sed -i '/push "dhcp-option DNS 1\.1\.1\.1"/,+1c push "dhcp-option DNS 193.233.112.67"\npush "dhcp-option DNS 193.233.112.68"\npush "dhcp-option DNS 45.155.204.190"\npush "dhcp-option DNS 37.230.192.51"' /etc/openvpn/server/vpn*.conf
-	sed -i 's/1\.1\.1\.1, 1\.0\.0\.1/193.233.112.67, 193.233.112.68, 45.155.204.190, 37.230.192.51/' /etc/wireguard/templates/vpn-client*.conf
+if [[ "$VPN_DNS" == '1' && "$ANTIZAPRET_DNS" != '1' ]]; then
+	sed -i "s/local vpn_dns = 2/local vpn_dns = $ANTIZAPRET_DNS/" /etc/knot-resolver/kresd.conf
 fi
 
 # Не используем альтернативный диапазон подменных IPv4-адресов
@@ -596,6 +638,12 @@ if [[ "$ALTERNATIVE_CLIENT_IP" == 'y' ]]; then
 	find /etc/wireguard -name '*.conf' -exec sed -i 's/s = 10\./s = 172\./g' {} +
 else
 	find /etc/wireguard -name '*.conf' -exec sed -i 's/s = 172\./s = 10\./g' {} +
+fi
+
+# Настраиваем MTU в OpenVPN и WireGuard
+if [[ "$MTU" != '1420' ]]; then
+	sed -i "s/tun-mtu 1420/tun-mtu $MTU/" /etc/openvpn/server/*.conf
+	sed -i "s/MTU = 1420/MTU = $MTU/" /etc/wireguard/templates/*.conf
 fi
 
 # Запрещаем несколько одновременных подключений к OpenVPN для одного клиента
@@ -623,6 +671,7 @@ sed -i -z -E 's/policy\.DENY_MSG\([^)]*kres\.extended_error\.NOTSUP[^)]*\)/polic
 # Включим обновляемые службы
 systemctl enable kresd@1
 systemctl enable kresd@2
+systemctl enable kresd@3
 systemctl enable antizapret
 systemctl enable antizapret-update.timer
 systemctl enable antizapret-update

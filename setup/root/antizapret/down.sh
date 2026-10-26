@@ -5,6 +5,10 @@ cd /root/antizapret
 
 source setup
 
+# Out IP protection
+iptables -w -D INPUT -d $ANTIZAPRET_OUT_IP -m conntrack --ctstate NEW -j DROP
+iptables -w -D INPUT -d $VPN_OUT_IP -m conntrack --ctstate NEW -j DROP
+
 if [[ -z "$DEFAULT_INTERFACE" ]]; then
 	DEFAULT_INTERFACE="$(ip route get 1.2.3.4 2>/dev/null | grep -oP 'dev \K\S+')"
 	if [[ -z "$DEFAULT_INTERFACE" ]]; then
@@ -54,6 +58,12 @@ if [[ "$VPN_WARP" == '2' ]] && ip link show dev $VPN_WARP_INTERFACE &>/dev/null;
 	VPN_OUT_INTERFACE=$VPN_WARP_INTERFACE
 	VPN_OUT_IP=$VPN_WARP_IP
 fi
+
+# WARP DNS
+DNS_WARP_INTERFACE=warp-dns
+DNS_WARP_PATH="/etc/wireguard/$DNS_WARP_INTERFACE.conf"
+[[ -z "$DNS_WARP_ADDRESS" ]] && DNS_WARP_ADDRESS=$(awk -F'= ' '/^Address/{print $2; exit}' "$DNS_WARP_PATH")
+DNS_WARP_IP="${DNS_WARP_ADDRESS%%/*}"
 
 # filter
 # INPUT connection tracking
@@ -144,11 +154,15 @@ iptables -w -t nat -D PREROUTING -s $IP.29.0.0/16 ! -d $FAKE_IP.0.0/15 -j CONNMA
 # Mapping fake IP to real IP
 iptables -w -t nat -D PREROUTING -s $IP.28.0.0/15 -d $FAKE_IP.0.0/15 -j ANTIZAPRET-MAPPING
 # WARP
+iptables -w -D FORWARD -s $IP.29.0.0/16 -j DROP
+iptables -w -D FORWARD -s $IP.28.0.0/16 -j DROP
 iptables -w -t mangle -D PREROUTING -s $IP.28.0.0/15 -d $FAKE_IP.0.0/15 -j ANTIZAPRET-WARP
 iptables -w -t nat -D POSTROUTING -s $IP.29.0.0/16 -m mark --mark 0x2 -o $ANTIZAPRET_WARP_INTERFACE -j MASQUERADE
 iptables -w -t nat -D POSTROUTING -s $IP.29.0.0/16 -m mark --mark 0x2 -o $ANTIZAPRET_WARP_INTERFACE -j SNAT --to-source $ANTIZAPRET_WARP_IP
 iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/16 -m mark --mark 0x2 -o $VPN_WARP_INTERFACE -j MASQUERADE
 iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/16 -m mark --mark 0x2 -o $VPN_WARP_INTERFACE -j SNAT --to-source $VPN_WARP_IP
+iptables -w -t nat -D POSTROUTING -o $DNS_WARP_INTERFACE -j MASQUERADE
+iptables -w -t nat -D POSTROUTING -o $DNS_WARP_INTERFACE -j SNAT --to-source $DNS_WARP_IP
 # SNAT/MASQUERADE VPN
 iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/15 -o $ANTIZAPRET_OUT_INTERFACE -j MASQUERADE
 iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/15 -o $ANTIZAPRET_OUT_INTERFACE -j SNAT --to-source $ANTIZAPRET_OUT_IP
@@ -165,7 +179,7 @@ iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/16 -o $VPN_WARP_INTERFACE -j SNA
 
 # WARP AntiZapret
 if [[ -f $ANTIZAPRET_WARP_PATH ]]; then
-	wg-quick down $ANTIZAPRET_WARP_PATH
+	wg-quick down $ANTIZAPRET_WARP_INTERFACE
 fi
 if ip link show dev $ANTIZAPRET_WARP_INTERFACE &>/dev/null; then
 	ip link delete dev $ANTIZAPRET_WARP_INTERFACE
@@ -173,11 +187,20 @@ fi
 
 # WARP VPN
 if [[ -f $VPN_WARP_PATH ]]; then
-	wg-quick down $VPN_WARP_PATH
+	wg-quick down $VPN_WARP_INTERFACE
 fi
 if ip link show dev $VPN_WARP_INTERFACE &>/dev/null; then
 	ip link delete dev $VPN_WARP_INTERFACE
 fi
 
-./custom-down.sh
+# WARP DNS
+if [[ -f $DNS_WARP_PATH ]]; then
+	wg-quick down $DNS_WARP_INTERFACE
+fi
+if ip link show dev $DNS_WARP_INTERFACE &>/dev/null; then
+	ip link delete dev $DNS_WARP_INTERFACE
+fi
+
+./custom-down.sh "$@" || true
+
 exit 0
