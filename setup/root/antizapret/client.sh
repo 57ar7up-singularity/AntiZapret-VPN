@@ -210,7 +210,7 @@ addWireGuard(){
 		BASE_CLIENT_IP="$(grep "^Address" /etc/wireguard/antizapret.conf | sed 's/.*= *//' | cut -d'.' -f1-3 | head -n 1)"
 		for i in {2..255}; do
 			CLIENT_IP="${BASE_CLIENT_IP}.$i"
-			if ! grep -q "$CLIENT_IP" /etc/wireguard/antizapret.conf; then
+			if ! grep -qE "(^|[^0-9])${CLIENT_IP//./\\.}([^0-9]|$)" /etc/wireguard/antizapret.conf; then
 				break
 			fi
 			if [[ "$i" == 255 ]]; then
@@ -247,7 +247,7 @@ AllowedIPs = ${CLIENT_IP}/32
 		BASE_CLIENT_IP="$(grep "^Address" /etc/wireguard/vpn.conf | sed 's/.*= *//' | cut -d'.' -f1-3 | head -n 1)"
 		for i in {2..255}; do
 			CLIENT_IP="${BASE_CLIENT_IP}.$i"
-			if ! grep -q "$CLIENT_IP" /etc/wireguard/vpn.conf; then
+			if ! grep -qE "(^|[^0-9])${CLIENT_IP//./\\.}([^0-9]|$)" /etc/wireguard/vpn.conf; then
 				break
 			fi
 			if [[ "$i" == 255 ]]; then
@@ -277,7 +277,7 @@ deleteWireGuard(){
 	setServerHost_FileName "$WIREGUARD_HOST"
 	echo
 
-	if ! grep -q "# Client = ${CLIENT_NAME}" "/etc/wireguard/antizapret.conf" && ! grep -q "# Client = ${CLIENT_NAME}" "/etc/wireguard/vpn.conf"; then
+	if ! grep -qx "# Client = ${CLIENT_NAME}" "/etc/wireguard/antizapret.conf" && ! grep -qx "# Client = ${CLIENT_NAME}" "/etc/wireguard/vpn.conf"; then
 		echo "Failed to delete client '$CLIENT_NAME'! Please check if client exists"
 		exit 7
 	fi
