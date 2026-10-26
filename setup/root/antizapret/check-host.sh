@@ -152,6 +152,20 @@ for arg in "$@"; do
 	echo "  AntiZapret DNS: ${ANTIZAPRET_IPS:-no answer}" | tr '\n' ' '; echo
 	echo "  Real IPs:       ${REAL_IPS:-no answer}" | tr '\n' ' '; echo
 
+	# Нулевой адрес отдает только deny.rpz (блокировка рекламы и config/deny-rpz.txt)
+	# Он проверяется раньше proxy.rpz, поэтому списки маршрутизации на такой домен не влияют
+	DENIED=''
+	if grep -qx '0.0.0.0' <<< "$ANTIZAPRET_IPS"; then
+		DENIED='deny.rpz'
+		for name in "${SUFFIXES[@]}"; do
+			if grep -qxF "$name CNAME ." /etc/knot-resolver/deny.rpz 2>/dev/null; then
+				DENIED="deny.rpz by '$name'"
+				break
+			fi
+		done
+		echo "  Blocked:      $DENIED"
+	fi
+
 	# Подменный IP означает, что трафик уйдет в туннель и на сервере будет развернут в реальный
 	FAKE='n'
 	for ip in $ANTIZAPRET_IPS; do
@@ -172,7 +186,13 @@ for arg in "$@"; do
 	fi
 	[[ -n "$ROUTED" ]] && echo "  Route by IP:  $ROUTED"
 
-	if [[ "$FAKE" == 'y' ]]; then
+	if [[ -n "$DENIED" ]]; then
+		echo -e "  Result:       \e[1;31mBlocked by AntiZapret DNS\e[0m"
+		echo '                The domain is blocked as ads or trackers before routing is checked,'
+		echo '                so config/include-hosts.txt and config/include-ips.txt do not help'
+		echo '                Add the domain to config/exclude-adblock-hosts.txt (or remove it'
+		echo '                from config/deny-rpz.txt) and run /root/antizapret/doall.sh'
+	elif [[ "$FAKE" == 'y' ]]; then
 		echo -e "  Result:       \e[1;32mAntiZapret VPN\e[0m (by domain)"
 	elif [[ -n "$ROUTED" ]]; then
 		echo -e "  Result:       \e[1;32mAntiZapret VPN\e[0m (by IP)"

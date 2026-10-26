@@ -97,7 +97,7 @@ Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 	else
 		if [[ "$WARP_PROTECTION" == 'y' ]]; then
 			echo "Starting $ANTIZAPRET_WARP_INTERFACE failed! Blocking traffic"
-			iptables -w -I FORWARD 2 -s $IP.29.0.0/16 -j DROP
+			iptables -w -I FORWARD 1 -s $IP.29.0.0/16 -j DROP
 		else
 			echo "Starting $ANTIZAPRET_WARP_INTERFACE failed! Use $DEFAULT_INTERFACE"
 		fi
@@ -156,7 +156,7 @@ Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 	else
 		if [[ "$WARP_PROTECTION" == 'y' ]]; then
 			echo "Starting $VPN_WARP_INTERFACE failed! Blocking traffic"
-			iptables -w -I FORWARD 2 -s $IP.28.0.0/16 -j DROP
+			iptables -w -I FORWARD 1 -s $IP.28.0.0/16 -j DROP
 		else
 			echo "Starting $VPN_WARP_INTERFACE failed! Use $DEFAULT_INTERFACE"
 		fi
@@ -336,6 +336,8 @@ ip6tables -w -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --cla
 ip6tables -w -t mangle -A OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
 # raw
+# Drop loopback destination from other interfaces: route_localnet=1 is needed only for DNS DNAT to 127.1.1.1 and 127.2.2.2
+iptables -w -t raw -A PREROUTING ! -i lo -d 127.0.0.0/8 -j DROP
 # NOTRACK loopback
 iptables -w -t raw -A PREROUTING -i lo -j NOTRACK
 iptables -w -t raw -A OUTPUT -o lo -j NOTRACK
