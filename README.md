@@ -170,6 +170,11 @@ nano /root/antizapret/config/include-ips.txt
 А клиентам WireGuard/AmneziaWG нужно добавить новые IP-адреса через запятую в конфигурационные файлы (antizapret-\*.conf) в строке AllowedIPs
 
 ### 7. Проверить, идет ли домен через АнтиЗапрет
+Скрипта нет в основном репозитории, поэтому ни setup.sh, ни ежедневное обновление его не устанавливают - один раз скачайте его на сервер
+```
+curl -fL https://raw.githubusercontent.com/57ar7up-singularity/AntiZapret-VPN/main/setup/root/antizapret/check-host.sh -o /root/antizapret/check-host.sh && chmod +x /root/antizapret/check-host.sh
+```
+Запуск
 ```
 /root/antizapret/check-host.sh <домен_или_ссылка> [домен_или_ссылка]...
 ```
