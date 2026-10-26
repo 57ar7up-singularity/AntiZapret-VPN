@@ -336,6 +336,8 @@ ip6tables -w -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --cla
 ip6tables -w -t mangle -A OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
 # raw
+# Drop loopback destination from other interfaces: route_localnet=1 is needed only for DNS DNAT to 127.1.1.1 and 127.2.2.2
+iptables -w -t raw -A PREROUTING ! -i lo -d 127.0.0.0/8 -j DROP
 # NOTRACK loopback
 iptables -w -t raw -A PREROUTING -i lo -j NOTRACK
 iptables -w -t raw -A OUTPUT -o lo -j NOTRACK

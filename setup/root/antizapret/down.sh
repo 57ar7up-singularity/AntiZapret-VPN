@@ -120,6 +120,8 @@ ip6tables -w -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --cla
 ip6tables -w -t mangle -D OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
 # raw
+# Drop loopback destination from other interfaces
+iptables -w -t raw -D PREROUTING ! -i lo -d 127.0.0.0/8 -j DROP
 # NOTRACK loopback
 iptables -w -t raw -D PREROUTING -i lo -j NOTRACK
 iptables -w -t raw -D OUTPUT -o lo -j NOTRACK
